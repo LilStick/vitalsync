@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vitalsync-backend
+  labels:
+    app: vitalsync-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vitalsync-backend
+  template:
+    metadata:
+      labels:
+        app: vitalsync-backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/lilstick/vitalsync/backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vitalsync-secret
+                  key: database-url
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vitalsync-frontend
+  labels:
+    app: vitalsync-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vitalsync-frontend
+  template:
+    metadata:
+      labels:
+        app: vitalsync-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/lilstick/vitalsync/frontend:latest
+          ports:
+            - containerPort: 80
