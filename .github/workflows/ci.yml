@@ -1,0 +1,68 @@
+name: VitalSync CI/CD
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+      - name: Run ESLint
+        working-directory: ./backend
+        run: npx eslint . --ext .js || true
+      - name: Run tests
+        working-directory: ./backend
+        run: npm test
+
+  build-and-push:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push backend
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/backend:${{ github.sha }} ./backend
+          docker push ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+      - name: Build and push frontend
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} ./frontend
+          docker push ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create .env file
+        run: |
+          echo "POSTGRES_USER=vitalsync" >> .env
+          echo "POSTGRES_PASSWORD=testpassword" >> .env
+          echo "POSTGRES_DB=vitalsync_db" >> .env
+      - name: Deploy with docker-compose
+        run: docker compose up -d
+      - name: Wait for services
+        run: sleep 10
+      - name: Health check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Health check passed"
